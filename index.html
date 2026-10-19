@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>مولّد المذكرة اليومية</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f4ef;--card:#fff;--tx:#1f2933;--mut:#6b7280;--ac:#1d6b57;--bd:#e0dcd2}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15191a;--card:#1f2527;--tx:#e8ecec;--mut:#9aa5a8;--ac:#4fbf9f;--bd:#33403f}}
+:root[data-theme="dark"]{--bg:#15191a;--card:#1f2527;--tx:#e8ecec;--mut:#9aa5a8;--ac:#4fbf9f;--bd:#33403f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Segoe UI",Tahoma,Arial,sans-serif;line-height:1.7}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:.2em 0}.sub{color:var(--mut);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+label{font-size:.85rem;color:var(--mut);display:block}
+input,select{width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
+#drop{border:2px dashed var(--bd);border-radius:12px;padding:26px;text-align:center;cursor:pointer;color:var(--mut)}
+#drop.on{border-color:var(--ac);color:var(--ac)}
+button{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer;margin:4px 0 0 6px}
+button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button:disabled{opacity:.5;cursor:default}
+.file{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd);font-size:.9rem}
+.tblw{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:560px}
+th,td{border:1px solid var(--bd);padding:8px;vertical-align:top;text-align:right}th{background:var(--bg)}
+#plan h2{font-size:1.15rem;text-align:center;color:var(--ac);margin-top:0}
+#plan h3{font-size:1rem;margin:14px 0 4px;color:var(--ac)}#plan ul{margin:0;padding-inline-start:22px}
+#msg{color:var(--mut);margin:8px 0}
+@media print{body{background:#fff;color:#000}.noprint{display:none}.card{border:0}}
+</style>
+</head>
+<body>
+<main>
+<div class="noprint">
+<h1>📘 مولّد المذكرة اليومية</h1>
+<p class="sub">ارفع عرض الدرس (PowerPoint) وسيتم توليد المذكرة اليومية تلقائياً.</p>
+<div class="card">
+<div class="grid">
+<div><label>المؤسسة</label><input id="school" value="المدرسة الرائدة"></div>
+<div><label>الأستاذ(ة)</label><input id="teacher"></div>
+<div><label>المادة</label><input id="subject"></div>
+<div><label>المستوى</label><input id="level"></div>
+<div><label>التاريخ</label><input id="date" type="date"></div>
+<div><label>مدة الحصة (دقيقة)</label><input id="dur" type="number" value="45"></div>
+</div>
+</div>
+<div class="card">
+<div style="margin-bottom:12px"><label>مفتاح Anthropic API (اختياري — للتوليد الذكي، يُحفظ في متصفحك فقط)</label><input id="key" type="password" placeholder="sk-ant-..." autocomplete="off"></div>
+<div id="drop">اسحب ملفات .pptx هنا أو اضغط للاختيار</div>
+<input id="fi" type="file" accept=".pptx" multiple hidden>
+<div id="files"></div>
+<button id="go" disabled>✨ توليد المذكرة</button>
+<div id="msg"></div>
+</div>
+</div>
+<div id="plan" class="card" hidden></div>
+<div id="acts" class="noprint" hidden>
+<button id="dl">⬇ تحميل (Word)</button>
+<button id="pr" class="sec">🖨 طباعة</button>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let decks=[];
+$("date").valueAsDate=new Date();
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function readPptx(file){
+  const z=await JSZip.loadAsync(await file.arrayBuffer());
+  const names=Object.keys(z.files).filter(n=>/^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a,b)=>parseInt(a.match(/\d+/))-parseInt(b.match(/\d+/)));
+  const slides=[];
+  for(const n of names){
+    const xml=await z.file(n).async("string");
+    const paras=[...xml.matchAll(/<a:p[ >][\s\S]*?<\/a:p>/g)].map(p=>
+      [...p[0].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(t=>t[1]).join("")
+        .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").trim()
+    ).filter(Boolean);
+    if(paras.length)slides.push(paras.join("\n"));
+  }
+  return {name:file.name,slides};
+}
+async function addFiles(list){
+  for(const f of list){
+    if(!/\.pptx$/i.test(f.name))continue;
+    try{decks.push(await readPptx(f))}catch(e){$("msg").textContent="تعذّرت قراءة "+f.name}
+  }
+  $("files").innerHTML=decks.map(d=>`<div class="file"><span>${esc(d.name)}</span><span>${d.slides.length} شريحة</span></div>`).join("");
+  $("go").disabled=!decks.length;
+}
+$("drop").onclick=()=>$("fi").click();
+$("fi").onchange=e=>addFiles(e.target.files);
+$("drop").ondragover=e=>{e.preventDefault();$("drop").classList.add("on")};
+$("drop").ondragleave=()=>$("drop").classList.remove("on");
+$("drop").ondrop=e=>{e.preventDefault();$("drop").classList.remove("on");addFiles(e.dataTransfer.files)};
+
+const list=a=>`<ul>${(a||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`;
+function render(p){
+  const h=`<h2>المذكرة اليومية</h2>
+  <div class="tblw"><table><tr><th>المؤسسة</th><td>${esc($("school").value)}</td><th>الأستاذ(ة)</th><td>${esc($("teacher").value)}</td></tr>
+  <tr><th>المادة</th><td>${esc($("subject").value||p.matiere)}</td><th>المستوى</th><td>${esc($("level").value||p.niveau)}</td></tr>
+  <tr><th>التاريخ</th><td>${esc($("date").value)}</td><th>المدة</th><td>${esc($("dur").value)} د</td></tr>
+  <tr><th>عنوان الدرس</th><td colspan="3">${esc(p.titre)}</td></tr></table></div>
+  <h3>الأهداف التعلمية</h3>${list(p.objectifs)}
+  <h3>المكتسبات القبلية</h3>${list(p.prerequis)}
+  <h3>الوسائل والدعامات</h3>${list(p.materiel)}
+  <h3>سير الحصة</h3>
+  <div class="tblw"><table><tr><th>المرحلة</th><th>المدة</th><th>نشاط الأستاذ(ة)</th><th>نشاط المتعلم(ة)</th></tr>
+  ${(p.deroulement||[]).map(r=>`<tr><td>${esc(r.phase)}</td><td>${esc(r.duree)}</td><td>${esc(r.activite_enseignant)}</td><td>${esc(r.activite_eleve)}</td></tr>`).join("")}</table></div>
+  <h3>التقويم</h3>${list(p.evaluation)}
+  <h3>الدعم والأنشطة المنزلية</h3>${list(p.devoirs)}`;
+  $("plan").innerHTML=h;$("plan").hidden=false;$("acts").hidden=false;
+  $("plan").scrollIntoView({behavior:"smooth"});
+}
+
+function basic(){
+  const all=decks.flatMap(d=>d.slides.map(t=>t.split("\n")));
+  const titles=all.map(x=>x[0]);
+  const dur=+$("dur").value||45, n=all.length;
+  const rows=[{phase:"التمهيد",duree:Math.round(dur*.15)+" د",activite_enseignant:"تقديم الدرس: "+titles[0],activite_eleve:"الاستماع والمشاركة بالأسئلة"}];
+  const mid=all.slice(1,Math.max(n-1,1)), per=Math.max(1,Math.round(dur*.6/Math.max(mid.length,1)));
+  mid.forEach(x=>rows.push({phase:"بناء التعلمات",duree:per+" د",activite_enseignant:x.slice(0,3).join(" — "),activite_eleve:"الملاحظة والتدوين والتطبيق"}));
+  rows.push({phase:"التقويم والخلاصة",duree:Math.round(dur*.15)+" د",activite_enseignant:"تمارين تقويمية وخلاصة الدرس",activite_eleve:"حل التمارين واستخلاص الخلاصة"});
+  return {titre:titles[0],objectifs:titles.slice(1,6).map(t=>"أن يتعرف المتعلم على: "+t),prerequis:["مكتسبات الدرس السابق"],materiel:["عرض PowerPoint","السبورة","الكتاب المدرسي"],deroulement:rows,evaluation:["أسئلة شفوية وتمارين تطبيقية"],devoirs:["تمارين منزلية لتثبيت الدرس"]};
+}
+$("key").value=localStorage.getItem("ak")||"";
+$("go").onclick=async()=>{
+  const msg=$("msg"),key=$("key").value.trim();$("go").disabled=true;
+  try{
+    if(!key){render(basic());msg.textContent="تم التوليد الآلي البسيط. أضف مفتاح API للحصول على مذكرة أكثر تفصيلاً.";return}
+    localStorage.setItem("ak",key);msg.textContent="جارٍ التوليد…";
+    const content=decks.map(d=>`# ${d.name}\n`+d.slides.map((s,i)=>`[شريحة ${i+1}]\n${s}`).join("\n\n")).join("\n\n").slice(0,40000);
+    const prompt=`أنت أستاذ خبير في إعداد المذكرات اليومية للدروس بالمدرسة المغربية. انطلاقاً من محتوى عرض الدرس أدناه، أنشئ مذكرة يومية بالعربية.
+المادة: ${$("subject").value||"غير محددة"}، المستوى: ${$("level").value||"غير محدد"}، مدة الحصة: ${$("dur").value} دقيقة.
+أجب بـ JSON فقط (بدون شرح أو علامات ماركداون) بالشكل:
+{"titre":"","matiere":"","niveau":"","objectifs":["..."],"prerequis":["..."],"materiel":["..."],"deroulement":[{"phase":"","duree":"","activite_enseignant":"","activite_eleve":""}],"evaluation":["..."],"devoirs":["..."]}
+اجعل مجموع مدد مراحل سير الحصة مساوياً لمدة الحصة، وابدأ بالتمهيد وأنهِ بالتقويم/الخلاصة. اعتمد على محتوى الشرائح فقط.
+
+محتوى العرض:
+${content}`;
+    const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:4000,messages:[{role:"user",content:prompt}]})});
+    const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);
+    const t=j.content.map(c=>c.text||"").join("").replace(/```json|```/g,"").trim();
+    render(JSON.parse(t));msg.textContent="";
+  }catch(e){msg.textContent="حدث خطأ: "+(e&&e.message||e)}
+  finally{$("go").disabled=!decks.length}
+};
+
+$("pr").onclick=()=>window.print();
+$("dl").onclick=()=>{
+  const html=`<html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>body{font-family:Arial;direction:rtl}table{border-collapse:collapse;width:100%}td,th{border:1px solid #888;padding:6px;text-align:right}</style></head><body>${$("plan").innerHTML}</body></html>`;
+  const u=URL.createObjectURL(new Blob(["\ufeff"+html],{type:"application/msword"}));
+  const l=document.createElement("a");l.href=u;l.download="مذكرة-يومية.doc";l.click();URL.revokeObjectURL(u);
+};
+</script>
+</body>
+</html>
